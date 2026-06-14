@@ -1,0 +1,76 @@
+services:    
+
+  # It is heavy for my machine
+  # pgadmin:
+  #   image: dpage/pgadmin4
+  #   container_name: genai-pgadmin
+  #   environment:
+  #     PGADMIN_DEFAULT_EMAIL: admin@admin.com
+  #     PGADMIN_DEFAULT_PASSWORD: admin
+  #   ports:
+  #     - "5050:80"
+  #   depends_on:
+  #     - postgres
+
+
+  postgres:
+    image: pgvector/pgvector:pg18-trixie
+    container_name: genai-postgres
+    environment:
+      POSTGRES_DB: genai
+      POSTGRES_USER: genai
+      POSTGRES_PASSWORD: genai
+    ports:
+      - "5432:5432"
+    volumes:
+      - genai-26-06-pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U genai -d genai"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  flyway:
+    image: flyway/flyway:10
+    command: -url=jdbc:postgresql://postgres:5432/genai -user=genai -password=genai migrate
+    volumes:
+      - ./genai-db/migrations:/flyway/sql
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  backend:
+    build:
+      context: ./genai-be
+      dockerfile: Dockerfile
+    container_name: genai-backend
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/genai
+      SPRING_DATASOURCE_USERNAME: genai
+      SPRING_DATASOURCE_PASSWORD: genai
+    ports:
+      - "8080:8080"
+    depends_on:
+      flyway:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    build:
+      context: ./genai-fe
+      dockerfile: Dockerfile
+    container_name: genai-frontend
+    environment:
+      NEXT_PUBLIC_API_URL: http://backend:8080
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  genai-26-06-pgdata:
